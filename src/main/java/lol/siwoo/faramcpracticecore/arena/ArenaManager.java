@@ -111,7 +111,7 @@ public class ArenaManager {
                     plugin.getLogger().info("Reconfigured SP arena: dynamic");
                 }
             } else {
-                createBaseSpArena("dynamic", spawnLoc, false);
+                createBaseSpArena("dynamic", spawnLoc, false, null);
             }
 
             // Ensure "dynamicbuild" exists — build arena on world
@@ -127,7 +127,7 @@ public class ArenaManager {
                     plugin.getLogger().info("Reconfigured SP arena: dynamicbuild");
                 }
             } else {
-                createBaseSpArena("dynamicbuild", spawnLoc, true);
+                createBaseSpArena("dynamicbuild", spawnLoc, true, null);
             }
 
             plugin.getLogger().info("Dynamic SP arenas initialized on world '" + mainWorld.getName() + "'.");
@@ -140,7 +140,7 @@ public class ArenaManager {
     /**
      * Creates a new base SP arena by cloning an existing template.
      */
-    private void createBaseSpArena(String name, Location loc, boolean isBuild) {
+    private void createBaseSpArena(String name, Location loc, boolean isBuild, Arena template) {
         try {
             List<Arena> existing = StrikePractice.getAPI().getArenas();
             if (existing.isEmpty()) {
@@ -148,8 +148,10 @@ public class ArenaManager {
                 return;
             }
 
-            Arena template = existing.get(0);
-            Map<String, Object> data = template.serialize();
+            if (template == null) {
+                template = existing.get(0);
+            }
+            Map<String, Object> data = new HashMap<>(template.serialize());
             data.put("name", name);
             data.put("loc1", loc.clone());
             data.put("loc2", loc.clone());
@@ -377,7 +379,7 @@ public class ArenaManager {
         } while (StrikePractice.getAPI().getArena(newName) != null);
 
         // Create it
-        createBaseSpArena(newName, template.getLoc1(), isBuild); // Uses helper which saves it
+        createBaseSpArena(newName, template.getLoc1(), isBuild, template); // Uses helper which saves it
         Arena newArena = StrikePractice.getAPI().getArena(newName);
         if (newArena != null) {
             // Ensure permissions/kits are copied from template in case createBaseSpArena
