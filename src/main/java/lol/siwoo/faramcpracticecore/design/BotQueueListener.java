@@ -76,6 +76,7 @@ public class BotQueueListener implements Listener {
 
                 Arena arena = plugin.getArenaManager().getOrAllocateDynamicArena(kit.isBuild());
                 String cmd = "strikepractice:botduel " + kitId + (arena != null ? " " + arena.getName() : "");
+                lol.siwoo.faramcpracticecore.arena.ArenaSelectionListener.bypassNextMapSelect.add(player.getUniqueId());
                 Bukkit.dispatchCommand(player, cmd);
 
                 player.playSound(player.getLocation(), Sound.BLOCK_WOODEN_BUTTON_CLICK_ON, 1, 1);
@@ -89,9 +90,12 @@ public class BotQueueListener implements Listener {
 
         player.closeInventory();
 
-        // Start bot fight directly.
-        // It will trigger KitSelectEvent, which will open the map selector exactly once.
-        startBotFight.run();
+        // If permissioned: open map selector first, bot fight fires on callback
+        if (player.hasPermission("faramcpracticecore.selectarena")) {
+            ArenaSelectorGUI.open(player, plugin.getArenaManager(), kitId, startBotFight);
+        } else {
+            startBotFight.run();
+        }
     }
 
     public static String resolveKitId(String itemName) {

@@ -29,7 +29,7 @@ public class ArenaSelectionListener implements Listener {
     private final Map<Fight, NPC> pendingBots = new WeakHashMap<>();
     // Track the correct paste spawn location for each player while paste is in progress and after
     private final Map<UUID, Location> activeFightSpawns = new HashMap<>();
-    private final Map<UUID, String> playerCorrectWorld = new HashMap<>();
+    public static final Set<UUID> bypassNextMapSelect = new HashSet<>();
 
     public ArenaSelectionListener(FaraMCPracticeCore plugin, ArenaManager manager) {
         this.plugin = plugin;
@@ -38,6 +38,9 @@ public class ArenaSelectionListener implements Listener {
 
     @EventHandler
     public void onKitSelect(KitSelectEvent event) {
+        if (bypassNextMapSelect.remove(event.getPlayer().getUniqueId())) {
+            return;
+        }
         Player player = event.getPlayer();
         if (player.hasPermission("faramcpracticecore.selectarena") && StrikePractice.getAPI().isInQueue(player)) {
             ArenaSelectorGUI.open(player, manager, event.getKit().getName(), () -> {
@@ -48,11 +51,11 @@ public class ArenaSelectionListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerTeleport(PlayerTeleportEvent event) {
         UUID uuid = event.getPlayer().getUniqueId();
+        Location correctSpawn = activeFightSpawns.get(uuid);
 
-        // For players waiting on paste: block teleports going to wrong world
-        if (pendingPaste.contains(uuid)) {
-            Location correctSpawn = activeFightSpawns.get(uuid);
-            if (correctSpawn == null) {
+        if (correctSpawn != null) {
+            // Player is in an active fight.
+            if (pendingPaste.contains(uuid)) {
                 // Paste still in progress, world not known yet — block ALL teleports
                 event.setCancelled(true);
                 return;
@@ -68,8 +71,8 @@ public class ArenaSelectionListener implements Listener {
                     event.setTo(correctSpawn);
                 }
             }
-            // Teleport is within the correct paste world — allow it (StickToSpawn, etc.)
         }
+
 
         // For delayed players (fight end): block all teleports
         if (delayedPlayers.contains(uuid)) {
@@ -273,6 +276,7 @@ public class ArenaSelectionListener implements Listener {
             for (Player p : players) {
                 if (p != null && p.isOnline()) {
                     delayedPlayers.remove(p.getUniqueId());
+                    activeFightSpawns.remove(p.getUniqueId());
                     // Only teleport to spawn if player is NOT in a new fight
                     if (StrikePractice.getAPI().getFight(p) == null) {
                         p.teleport(spawn);
