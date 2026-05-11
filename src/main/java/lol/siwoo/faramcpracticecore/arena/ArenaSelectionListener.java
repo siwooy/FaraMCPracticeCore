@@ -27,7 +27,8 @@ public class ArenaSelectionListener implements Listener {
     private final Set<Fight> handledStarts = new HashSet<>();
     private final Set<Fight> handledEnds = new HashSet<>();
     private final Map<Fight, NPC> pendingBots = new WeakHashMap<>();
-    // Track the correct paste world for each player while paste is in progress
+    // Track the correct paste spawn location for each player while paste is in progress and after
+    private final Map<UUID, Location> activeFightSpawns = new HashMap<>();
     private final Map<UUID, String> playerCorrectWorld = new HashMap<>();
 
     public ArenaSelectionListener(FaraMCPracticeCore plugin, ArenaManager manager) {
@@ -50,17 +51,22 @@ public class ArenaSelectionListener implements Listener {
 
         // For players waiting on paste: block teleports going to wrong world
         if (pendingPaste.contains(uuid)) {
-            String correctWorld = playerCorrectWorld.get(uuid);
-            if (correctWorld == null) {
+            Location correctSpawn = activeFightSpawns.get(uuid);
+            if (correctSpawn == null) {
                 // Paste still in progress, world not known yet — block ALL teleports
                 event.setCancelled(true);
                 return;
             }
-            if (event.getTo() != null
-                    && !event.getTo().getWorld().getName().equals(correctWorld)) {
-                // SP is trying to teleport to the original arena world — block it
-                event.setCancelled(true);
-                return;
+            if (event.getTo() != null) {
+                if (!event.getTo().getWorld().getName().equals(correctSpawn.getWorld().getName())) {
+                    // SP is trying to teleport to the original arena world — block it
+                    event.setCancelled(true);
+                    return;
+                }
+                if (event.getCause() == PlayerTeleportEvent.TeleportCause.PLUGIN && event.getTo().distanceSquared(correctSpawn) > 25.0) {
+                    // Intercept StickToSpawn or late SP teleports and redirect to our newly pasted spawn
+                    event.setTo(correctSpawn);
+                }
             }
             // Teleport is within the correct paste world — allow it (StickToSpawn, etc.)
         }
@@ -152,7 +158,7 @@ public class ArenaSelectionListener implements Listener {
                 for (Player p : players) {
                     if (p != null) {
                         pendingPaste.remove(p.getUniqueId());
-                        playerCorrectWorld.remove(p.getUniqueId());
+                        activeFightSpawns.remove(p.getUniqueId());
                     }
                 }
                 return;
@@ -170,10 +176,11 @@ public class ArenaSelectionListener implements Listener {
             s2.setDirection(dir2);
 
             // Store the correct paste world for each player (for teleport blocking)
-            String pasteWorldName = s1.getWorld().getName();
-            for (Player p : players) {
+            // Store the correct paste spawn for each player (for teleport blocking & redirecting)
+            for (int i = 0; i < players.size(); i++) {
+                Player p = players.get(i);
                 if (p != null) {
-                    playerCorrectWorld.put(p.getUniqueId(), pasteWorldName);
+                    activeFightSpawns.put(p.getUniqueId(), i == 0 ? s1 : s2);
                 }
             }
 
@@ -183,18 +190,21 @@ public class ArenaSelectionListener implements Listener {
 
             // Explicitly teleport the bot if present
             NPC bot = pendingBots.remove(fight);
-            if (bot != null && bot.isSpawned()) {
-                bot.teleport(s2, PlayerTeleportEvent.TeleportCause.PLUGIN);
-                plugin.getLogger().info("[Arena] Force teleported bot " + bot.getName() + " to " + s2.toVector());
-            } else if (bot != null) {
-                plugin.getLogger().warning("[Arena] Bot " + bot.getName() + " is not spawned!");
+            if (bot != null) {
+                if (bot.isSpawned()) {
+                    bot.teleport(s2, PlayerTeleportEvent.TeleportCause.PLUGIN);
+                    plugin.getLogger().info("[Arena] Force teleported bot " + bot.getName() + " to " + s2.toVector());
+                } else {
+                    bot.spawn(s2);
+                    plugin.getLogger().info("[Arena] Force spawned bot " + bot.getName() + " at " + s2.toVector());
+                }
             }
 
             // Unblock and teleport players
             for (Player p : players) {
                 if (p != null) {
                     pendingPaste.remove(p.getUniqueId());
-                    playerCorrectWorld.remove(p.getUniqueId());
+                        // We keep activeFightSpawns until fight ends to catch StickToSpawn teleports
                 }
             }
 

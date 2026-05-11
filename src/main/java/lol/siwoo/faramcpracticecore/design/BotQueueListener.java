@@ -89,12 +89,9 @@ public class BotQueueListener implements Listener {
 
         player.closeInventory();
 
-        // If permissioned: open map selector first, bot fight fires on callback
-        if (player.hasPermission("faramcpracticecore.selectarena")) {
-            ArenaSelectorGUI.open(player, plugin.getArenaManager(), kitId, startBotFight);
-        } else {
-            startBotFight.run();
-        }
+        // Start bot fight directly.
+        // It will trigger KitSelectEvent, which will open the map selector exactly once.
+        startBotFight.run();
     }
 
     public static String resolveKitId(String itemName) {
