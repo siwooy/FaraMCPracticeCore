@@ -45,7 +45,26 @@ public class FireballFight implements Listener {
     private final Map<UUID, Location> startPositions;
     private final Map<String, String> fightIds;
     private final Map<String, List<BedBreakData>> fightBedBreaks;
+    private final Map<UUID, RespawnTaskData> activeRespawnTasks;
     private int fightCounter = 0;
+
+    private enum RespawnType {
+        VOID_FALL, DEATH
+    }
+
+    private static class RespawnTaskData {
+        final Player player;
+        final RespawnType type;
+        final Location oldLocation;
+        int ticks;
+
+        RespawnTaskData(Player player, RespawnType type, Location oldLocation) {
+            this.player = player;
+            this.type = type;
+            this.oldLocation = oldLocation;
+            this.ticks = 0;
+        }
+    }
 
     public FireballFight(FaraMCPracticeCore plugin) {
         this.plugin = plugin;
@@ -57,8 +76,9 @@ public class FireballFight implements Listener {
         this.startPositions = new HashMap<>();
         this.fightIds = new HashMap<>();
         this.fightBedBreaks = new HashMap<>();
+        this.activeRespawnTasks = new HashMap<>();
 
-        startCleanupTask();
+        startTickTask();
     }
 
     private static class BedBreakData {
@@ -75,14 +95,84 @@ public class FireballFight implements Listener {
         }
     }
 
-    private void startCleanupTask() {
+    private void startTickTask() {
         new BukkitRunnable() {
+            private int cleanupTicks = 0;
+
             @Override
             public void run() {
-                long currentTime = System.currentTimeMillis();
-                cooldownMap.entrySet().removeIf(entry -> currentTime - entry.getValue() > COOLDOWN_DURATION);
+                // Cooldown cleanup every 20 ticks
+                if (++cleanupTicks >= 20) {
+                    long currentTime = System.currentTimeMillis();
+                    cooldownMap.entrySet().removeIf(entry -> currentTime - entry.getValue() > COOLDOWN_DURATION);
+                    cleanupTicks = 0;
+                }
+
+                // Respawn tasks
+                if (activeRespawnTasks.isEmpty()) {
+                    return;
+                }
+
+                Iterator<Map.Entry<UUID, RespawnTaskData>> iterator = activeRespawnTasks.entrySet().iterator();
+                while (iterator.hasNext()) {
+                    Map.Entry<UUID, RespawnTaskData> entry = iterator.next();
+                    RespawnTaskData task = entry.getValue();
+                    Player p = task.player;
+                    UUID pid = p.getUniqueId();
+                    task.ticks++;
+
+                    if (task.type == RespawnType.VOID_FALL) {
+                        if (task.ticks == 5) {
+                            p.setAllowFlight(true);
+                            p.teleport(task.oldLocation);
+                            p.setFlying(true);
+                        } else if (task.ticks == 80) {
+                            isDead.remove(pid);
+                        } else if (task.ticks == 85) {
+                            p.setAllowFlight(false);
+                            p.setFlying(false);
+                            iterator.remove();
+                        }
+                    } else if (task.type == RespawnType.DEATH) {
+                        if (task.ticks == 20) {
+                            p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 1.0f);
+                            p.showTitle(Title.title(
+                                    Component.text("You died!", NamedTextColor.RED, TextDecoration.BOLD),
+                                    Component.text("You will respawn in 3 seconds", NamedTextColor.WHITE)));
+                        } else if (task.ticks == 40) {
+                            p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 1.0f);
+                            p.showTitle(Title.title(
+                                    Component.text("You died!", NamedTextColor.RED, TextDecoration.BOLD),
+                                    Component.text("You will respawn in 2 seconds", NamedTextColor.WHITE)));
+                        } else if (task.ticks == 60) {
+                            p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 1.0f);
+                            p.showTitle(Title.title(
+                                    Component.text("You died!", NamedTextColor.RED, TextDecoration.BOLD),
+                                    Component.text("You will respawn in 1 seconds", NamedTextColor.WHITE)));
+                        } else if (task.ticks == 80) {
+                            Location spawnLocation = startPositions.get(pid);
+                            if (spawnLocation != null) {
+                                p.playSound(spawnLocation, Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f);
+                                p.showTitle(Title.title(
+                                        Component.text("Respawned!", NamedTextColor.GREEN, TextDecoration.BOLD),
+                                        Component.empty()));
+                                p.teleport(spawnLocation);
+                            }
+                            p.removePotionEffect(PotionEffectType.INVISIBILITY);
+                            p.setFlying(false);
+                            p.setAllowFlight(false);
+                            isDead.remove(pid);
+                        } else if (task.ticks == 85) {
+                            Location spawnLocation = startPositions.get(pid);
+                            if (spawnLocation != null) {
+                                p.teleport(spawnLocation);
+                            }
+                            iterator.remove();
+                        }
+                    }
+                }
             }
-        }.runTaskTimer(plugin, 20L, 20L);
+        }.runTaskTimer(plugin, 1L, 1L);
     }
 
     @EventHandler
@@ -147,6 +237,7 @@ public class FireballFight implements Listener {
             fightIds.remove(playerId.toString());
             isbedBroken.remove(playerId);
             isDead.remove(playerId);
+            activeRespawnTasks.remove(playerId);
         });
     }
 
@@ -184,6 +275,7 @@ public class FireballFight implements Listener {
         isbedBroken.remove(playerId);
         startPositions.remove(playerId);
         fightIds.remove(playerId.toString());
+        activeRespawnTasks.remove(playerId);
     }
 
     @EventHandler
@@ -217,29 +309,7 @@ public class FireballFight implements Listener {
             isDead.put(playerId, true);
             p.teleport(location);
 
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    p.setAllowFlight(true);
-                    p.teleport(oldlocation);
-                    p.setFlying(true);
-                }
-            }.runTaskLater(plugin, 5L);
-
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    isDead.remove(playerId);
-                }
-            }.runTaskLater(plugin, 80L);
-
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    p.setAllowFlight(false);
-                    p.setFlying(false);
-                }
-            }.runTaskLater(plugin, 85L);
+            activeRespawnTasks.put(playerId, new RespawnTaskData(p, RespawnType.VOID_FALL, oldlocation));
         }
 
         if (Boolean.TRUE.equals(isInFireballfight.get(playerId))
@@ -505,63 +575,7 @@ public class FireballFight implements Listener {
                 player.sendMessage(Component.text(p.getName() + " died", NamedTextColor.GRAY));
             });
 
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 1.0f);
-                    p.showTitle(Title.title(
-                            Component.text("You died!", NamedTextColor.RED, TextDecoration.BOLD),
-                            Component.text("You will respawn in 3 seconds", NamedTextColor.WHITE)));
-                }
-            }.runTaskLater(plugin, 20L);
-
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 1.0f);
-                    p.showTitle(Title.title(
-                            Component.text("You died!", NamedTextColor.RED, TextDecoration.BOLD),
-                            Component.text("You will respawn in 2 seconds", NamedTextColor.WHITE)));
-                }
-            }.runTaskLater(plugin, 40L);
-
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 1.0f);
-                    p.showTitle(Title.title(
-                            Component.text("You died!", NamedTextColor.RED, TextDecoration.BOLD),
-                            Component.text("You will respawn in 1 seconds", NamedTextColor.WHITE)));
-                }
-            }.runTaskLater(plugin, 60L);
-
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    Location spawnLocation = startPositions.get(pid);
-
-                    p.playSound(spawnLocation, Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f);
-                    p.showTitle(Title.title(
-                            Component.text("Respawned!", NamedTextColor.GREEN, TextDecoration.BOLD),
-                            Component.empty()));
-
-                    p.teleport(spawnLocation);
-
-                    p.removePotionEffect(PotionEffectType.INVISIBILITY);
-                    p.setFlying(false);
-                    p.setAllowFlight(false);
-
-                    isDead.remove(pid);
-                }
-            }.runTaskLater(plugin, 80L);
-
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    Location spawnLocation = startPositions.get(pid);
-                    p.teleport(spawnLocation);
-                }
-            }.runTaskLater(plugin, 85L);
+            activeRespawnTasks.put(pid, new RespawnTaskData(p, RespawnType.DEATH, null));
         }
     }
 }
