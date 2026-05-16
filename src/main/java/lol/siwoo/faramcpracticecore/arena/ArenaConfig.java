@@ -1,11 +1,13 @@
 package lol.siwoo.faramcpracticecore.arena;
 
+import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.util.Vector;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
 
 public class ArenaConfig {
     private final File file;
@@ -58,7 +60,7 @@ public class ArenaConfig {
         try {
             config.save(file);
         } catch (IOException e) {
-            e.printStackTrace();
+            Bukkit.getLogger().log(Level.SEVERE, "Failed to save arena config: " + file.getName(), e);
         }
     }
 }

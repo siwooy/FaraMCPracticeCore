@@ -22,6 +22,7 @@ import java.io.*;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
 
 public class ArenaManager {
     private final FaraMCPracticeCore plugin;
@@ -132,8 +133,7 @@ public class ArenaManager {
 
             plugin.getLogger().info("Dynamic SP arenas initialized on world '" + mainWorld.getName() + "'.");
         } catch (Exception e) {
-            plugin.getLogger().warning("Failed to init dynamic SP arenas: " + e.getMessage());
-            e.printStackTrace();
+            plugin.getLogger().log(Level.SEVERE, "Failed to init dynamic SP arenas: " + e.getMessage(), e);
         }
     }
 
@@ -169,8 +169,7 @@ public class ArenaManager {
                 plugin.getLogger().info("Created SP arena: " + name + " (build=" + isBuild + ")");
             }
         } catch (Exception e) {
-            plugin.getLogger().warning("Failed to create SP arena '" + name + "': " + e.getMessage());
-            e.printStackTrace();
+            plugin.getLogger().log(Level.SEVERE, "Failed to create SP arena '" + name + "': " + e.getMessage(), e);
         }
     }
 
@@ -252,8 +251,7 @@ public class ArenaManager {
                     future.complete(null);
                 }, 10L); // 10 tick delay to let FAWE sync blocks to the world
             } catch (Exception e) {
-                plugin.getLogger().severe("Failed to paste arena: " + e.getMessage());
-                e.printStackTrace();
+                plugin.getLogger().log(Level.SEVERE, "Failed to paste arena: " + e.getMessage(), e);
                 Bukkit.getScheduler().runTask(plugin, () -> future.complete(null));
             }
         });
@@ -324,8 +322,7 @@ public class ArenaManager {
 
                 future.complete(null);
             } catch (Exception e) {
-                plugin.getLogger().severe("Failed to clear arena: " + e.getMessage());
-                e.printStackTrace();
+                plugin.getLogger().log(Level.SEVERE, "Failed to clear arena: " + e.getMessage(), e);
                 future.complete(null);
             }
         });

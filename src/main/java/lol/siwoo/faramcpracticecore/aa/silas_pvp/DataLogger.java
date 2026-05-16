@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
 
 public class DataLogger implements Listener {
 
@@ -186,8 +187,7 @@ public class DataLogger implements Listener {
             plugin.getLogger().info("[silas-pvp-1] Saved match data: " + matchFile.getName());
 
         } catch (Exception e) {
-            plugin.getLogger().severe("[silas-pvp-1] Failed to save match data: " + e.getMessage());
-            e.printStackTrace();
+            plugin.getLogger().log(Level.SEVERE, "[silas-pvp-1] Failed to save match data: " + e.getMessage(), e);
             
             // Fallback: save as plain text
             saveAsPlainText(session);
