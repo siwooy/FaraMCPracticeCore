@@ -76,6 +76,7 @@ public class BotQueueListener implements Listener {
 
                 Arena arena = plugin.getArenaManager().getOrAllocateDynamicArena(kit.isBuild());
                 String cmd = "strikepractice:botduel " + kitId + (arena != null ? " " + arena.getName() : "");
+                lol.siwoo.faramcpracticecore.arena.ArenaSelectionListener.bypassNextMapSelect.add(player.getUniqueId());
                 Bukkit.dispatchCommand(player, cmd);
 
                 player.playSound(player.getLocation(), Sound.BLOCK_WOODEN_BUTTON_CLICK_ON, 1, 1);
