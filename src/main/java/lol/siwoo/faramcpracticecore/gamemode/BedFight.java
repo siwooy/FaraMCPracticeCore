@@ -2,6 +2,7 @@ package lol.siwoo.faramcpracticecore.gamemode;
 
 import ga.strikepractice.StrikePractice;
 import ga.strikepractice.api.StrikePracticeAPI;
+import ga.strikepractice.fights.Fight;
 import ga.strikepractice.arena.DefaultCachedBlockChange;
 import ga.strikepractice.events.FightEndEvent;
 import ga.strikepractice.events.FightStartEvent;
@@ -475,93 +476,90 @@ public class BedFight implements Listener {
             return;
         }
 
+        if (Boolean.TRUE.equals(isDead.get(p.getUniqueId()))) {
+            e.setCancelled(true);
+            return;
+        }
+
         if (p.getHealth() - e.getFinalDamage() <= 0.0f) {
             if (Boolean.TRUE.equals(isInBedfight.get(p.getUniqueId()))) {
-                isDead.put(p.getUniqueId(), true);
+                if (!Boolean.TRUE.equals(isbedBroken.get(p.getUniqueId()))) {
+                    e.setCancelled(true);
+                    p.setHealth(p.getMaxHealth());
+                    isDead.put(p.getUniqueId(), true);
+                    startRespawnSequence(p);
+                }
             }
         }
     }
 
-    @EventHandler
-    public void onStartSpectate(PlayerStartSpectatingEvent e) {
-        Player p = e.getPlayer();
+    private void startRespawnSequence(Player p) {
         UUID pid = p.getUniqueId();
 
-        if (!isInBedfight.containsKey(pid) || !isInBedfight.get(pid) || !isDead.containsKey(pid)) {
-            return;
+        p.getInventory().clear();
+        p.getInventory().setArmorContents(new ItemStack[4]);
+        p.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY, 100, 1, false, false));
+        p.setAllowFlight(true);
+        p.setFlying(true);
+
+        Location spawnLocation = startPositions.get(pid);
+        if (spawnLocation != null) {
+            p.teleport(spawnLocation);
         }
 
-        if (isInBedfight.get(pid).equals(Boolean.TRUE)
-                && isDead.get(pid).equals(Boolean.TRUE)) {
-            e.setCancelled(true);
+        api.getFight(p).getPlayersInFight().forEach(player -> {
+            player.sendMessage(Component.text(p.getName() + " died", NamedTextColor.GRAY));
+        });
 
-            p.getInventory().clear();
-            p.getInventory().setArmorContents(new ItemStack[4]);
-            p.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY, 100, 1, false, false));
-            p.setAllowFlight(true);
-            p.setFlying(true);
+        new BukkitRunnable() {
+            int ticks = 0;
+            @Override
+            public void run() {
+                if (!p.isOnline() || !Boolean.TRUE.equals(isDead.get(pid))) {
+                    this.cancel();
+                    return;
+                }
 
-            api.getFight(p).getPlayersInFight().forEach(player -> {
-                player.sendMessage(Component.text(p.getName() + " died", NamedTextColor.GRAY));
-            });
-
-            new BukkitRunnable() {
-                @Override
-                public void run() {
+                if (ticks == 0) {
                     p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 1.0f);
                     p.showTitle(Title.title(
                             Component.text("You died!", NamedTextColor.RED, TextDecoration.BOLD),
                             Component.text("You will respawn in 3 seconds", NamedTextColor.WHITE)));
-                }
-            }.runTaskLater(plugin, 20L);
-
-            new BukkitRunnable() {
-                @Override
-                public void run() {
+                } else if (ticks == 20) {
                     p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 1.0f);
                     p.showTitle(Title.title(
                             Component.text("You died!", NamedTextColor.RED, TextDecoration.BOLD),
                             Component.text("You will respawn in 2 seconds", NamedTextColor.WHITE)));
-                }
-            }.runTaskLater(plugin, 40L);
-
-            new BukkitRunnable() {
-                @Override
-                public void run() {
+                } else if (ticks == 40) {
                     p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 1.0f);
                     p.showTitle(Title.title(
                             Component.text("You died!", NamedTextColor.RED, TextDecoration.BOLD),
                             Component.text("You will respawn in 1 seconds", NamedTextColor.WHITE)));
-                }
-            }.runTaskLater(plugin, 60L);
+                } else if (ticks == 60) {
+                    Location loc = startPositions.get(pid);
+                    if (loc != null) {
+                        p.teleport(loc);
+                        p.playSound(loc, Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f);
+                    }
 
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    Location spawnLocation = startPositions.get(pid);
-
-                    p.playSound(spawnLocation, Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f);
                     p.showTitle(Title.title(
                             Component.text("Respawned!", NamedTextColor.GREEN, TextDecoration.BOLD),
                             Component.empty()));
-
-                    p.teleport(spawnLocation);
 
                     p.removePotionEffect(PotionEffectType.INVISIBILITY);
                     p.setFlying(false);
                     p.setAllowFlight(false);
 
-                    isDead.remove(pid);
-                }
-            }.runTaskLater(plugin, 80L);
+                    Fight fight = api.getFight(p);
+                    if (fight != null && fight.getKit() != null) {
+                        fight.getKit().giveKit(p);
+                    }
 
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    Location spawnLocation = startPositions.get(pid);
-                    p.teleport(spawnLocation);
+                    isDead.remove(pid);
+                    this.cancel();
                 }
-            }.runTaskLater(plugin, 85L);
-        }
+                ticks++;
+            }
+        }.runTaskTimer(plugin, 0L, 1L);
     }
 }

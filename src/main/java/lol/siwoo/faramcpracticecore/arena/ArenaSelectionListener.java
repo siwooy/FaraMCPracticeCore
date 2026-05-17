@@ -17,6 +17,7 @@ import org.bukkit.util.Vector;
 import net.citizensnpcs.api.npc.NPC;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ArenaSelectionListener implements Listener {
     private final FaraMCPracticeCore plugin;
@@ -26,7 +27,7 @@ public class ArenaSelectionListener implements Listener {
     private final Set<UUID> delayedPlayers = new HashSet<>();
     private final Set<Fight> handledStarts = new HashSet<>();
     private final Set<Fight> handledEnds = new HashSet<>();
-    private final Map<Fight, NPC> pendingBots = new WeakHashMap<>();
+    private final Map<Fight, NPC> pendingBots = new ConcurrentHashMap<>();
     // Track the correct paste spawn location for each player while paste is in progress and after
     private final Map<UUID, Location> activeFightSpawns = new HashMap<>();
     public static final Set<UUID> bypassNextMapSelect = new HashSet<>();
@@ -259,6 +260,8 @@ public class ArenaSelectionListener implements Listener {
         if (handledEnds.contains(fight))
             return;
         handledEnds.add(fight);
+
+        pendingBots.remove(fight);
 
         if (manager.getSession(fight) == null)
             return;
