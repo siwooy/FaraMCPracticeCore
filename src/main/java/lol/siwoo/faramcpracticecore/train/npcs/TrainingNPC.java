@@ -10,6 +10,7 @@ import org.bukkit.entity.Player;
 
 import java.util.Collections;
 import java.util.UUID;
+import java.util.logging.Level;
 
 public class TrainingNPC {
     private final FaraMCPracticeCore plugin;
@@ -68,12 +69,12 @@ public class TrainingNPC {
 
                     ProtocolLibrary.getProtocolManager().sendServerPacket(player, removeInfoPacket);
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    plugin.getLogger().log(Level.SEVERE, "Error in TrainingNPC (delayed task)", e);
                 }
             }, 5L);
 
         } catch (Exception e) {
-            e.printStackTrace();
+            plugin.getLogger().log(Level.SEVERE, "Error in TrainingNPC spawnForPlayer", e);
         }
     }
 
@@ -87,7 +88,7 @@ public class TrainingNPC {
             ProtocolLibrary.getProtocolManager().sendServerPacket(player, destroyPacket);
             removed = true;
         } catch (Exception e) {
-            e.printStackTrace();
+            plugin.getLogger().log(Level.SEVERE, "Error in TrainingNPC removeForPlayer", e);
         }
     }
 
@@ -108,7 +109,7 @@ public class TrainingNPC {
 
             ProtocolLibrary.getProtocolManager().sendServerPacket(player, teleportPacket);
         } catch (Exception e) {
-            e.printStackTrace();
+            plugin.getLogger().log(Level.SEVERE, "Error in TrainingNPC teleportForPlayer", e);
         }
     }
 
