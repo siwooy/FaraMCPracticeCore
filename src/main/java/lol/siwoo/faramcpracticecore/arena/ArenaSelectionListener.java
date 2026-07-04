@@ -155,6 +155,11 @@ public class ArenaSelectionListener implements Listener {
                         playerCorrectWorld.remove(p.getUniqueId());
                     }
                 }
+                // Drop dedup/bot state too so the fight objects don't leak
+                handledStarts.remove(fight);
+                pendingBots.remove(fight);
+                plugin.getLogger().warning("[Arena] Paste failed for '" + config.getName()
+                        + "' — fight continues on the SP arena's own location.");
                 return;
             }
             session.setSpArena(spArena);
@@ -247,8 +252,13 @@ public class ArenaSelectionListener implements Listener {
             return;
         handledEnds.add(fight);
 
-        if (manager.getSession(fight) == null)
+        if (manager.getSession(fight) == null) {
+            // No cloned arena for this fight — nothing to clean up, but drop the
+            // dedup entries so the Fight objects don't accumulate forever
+            handledEnds.remove(fight);
+            handledStarts.remove(fight);
             return;
+        }
 
         Location spawn = StrikePractice.getAPI().getSpawnLocation();
 

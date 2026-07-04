@@ -4,12 +4,18 @@ import ga.strikepractice.arena.Arena;
 import ga.strikepractice.fights.Fight;
 import org.bukkit.Location;
 
+import java.util.concurrent.CompletableFuture;
+
 public class FightSession {
     private final Fight fight;
     private final ArenaConfig config;
     private final Location center;
     private Arena spArena;
     private boolean dynamicallyCreated;
+    // Completes when the schematic paste finishes; endSession must wait on this
+    // so a fight that ends mid-paste doesn't clear the slot before the paste
+    // lands
+    private volatile CompletableFuture<Boolean> pasteFuture;
 
     public FightSession(Fight fight, ArenaConfig config, Location center) {
         this.fight = fight;
@@ -43,5 +49,13 @@ public class FightSession {
 
     public void setDynamicallyCreated(boolean dynamicallyCreated) {
         this.dynamicallyCreated = dynamicallyCreated;
+    }
+
+    public CompletableFuture<Boolean> getPasteFuture() {
+        return pasteFuture;
+    }
+
+    public void setPasteFuture(CompletableFuture<Boolean> pasteFuture) {
+        this.pasteFuture = pasteFuture;
     }
 }
