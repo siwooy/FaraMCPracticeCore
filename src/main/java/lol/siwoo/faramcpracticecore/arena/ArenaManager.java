@@ -83,7 +83,12 @@ public class ArenaManager {
                 return;
             }
 
-            Location spawnLoc = new Location(mainWorld, 0, 100, 0);
+            // Anchor the base arenas at the practice spawn: fighters (especially
+            // bots, which aren't teleport-blocked) stand here while the schematic
+            // paste runs, so it must be solid ground — not a point in mid-air.
+            Location spawnLoc = StrikePractice.getAPI().getSpawnLocation();
+            if (spawnLoc == null)
+                spawnLoc = new Location(mainWorld, 0, 100, 0);
 
             // Remove all extra dynamic arenas (anything with underscore like dynamic_2,
             // dynamicbuild_3)
