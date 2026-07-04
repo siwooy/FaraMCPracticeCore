@@ -6,6 +6,7 @@ import ga.strikepractice.arena.DefaultCachedBlockChange;
 import ga.strikepractice.events.FightEndEvent;
 import ga.strikepractice.events.FightStartEvent;
 import ga.strikepractice.events.PlayerStartSpectatingEvent;
+import ga.strikepractice.fights.Fight;
 import lol.siwoo.faramcpracticecore.FaraMCPracticeCore;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -184,22 +185,52 @@ public class FireballFight implements Listener {
         String fightId = "fireballfight_" + (++fightCounter) + "_" + System.currentTimeMillis();
         fightBedBreaks.put(fightId, new ArrayList<>());
 
+        plugin.getLogger().info("FireballFight match started. Players: " + e.getFight().getPlayersInFight());
+        for (Player p : e.getFight().getPlayersInFight()) {
+            registerWhenInArena(e.getFight(), fightId, p, 0);
+        }
+    }
+
+    /**
+     * Registers the player's fight state and start position once they have
+     * actually arrived in the arena. Cloned arenas are pasted asynchronously,
+     * so a fixed delay used to sample the player while they were still
+     * teleport-locked in the lobby — which broke bed-team detection and made
+     * respawns send players back to the lobby.
+     */
+    private void registerWhenInArena(Fight fight, String fightId, Player p, int attempt) {
         new BukkitRunnable() {
             @Override
             public void run() {
-                plugin.getLogger().info("FireballFight match started. Players: " + e.getFight().getPlayersInFight());
+                if (!p.isOnline() || api.getFight(p) != fight) {
+                    return; // fight ended or player left before arriving
+                }
 
-                e.getFight().getPlayersInFight().forEach(p -> {
-                    UUID playerId = p.getUniqueId();
-                    cooldownMap.put(playerId, System.currentTimeMillis());
-                    isInFireballfight.put(playerId, true);
-                    fightIds.put(playerId.toString(), fightId);
+                boolean cloned = plugin.getArenaManager().getSession(fight) != null;
+                boolean arrived = !cloned || plugin.getArenaManager().isPasteWorld(p.getWorld());
+                if (!arrived && attempt < 40) {
+                    registerWhenInArena(fight, fightId, p, attempt + 1);
+                    return;
+                }
 
-                    startPositions.put(playerId, p.getLocation().clone());
-                    plugin.getLogger().info("Cached starting position for " + p.getName() + ": " + p.getLocation());
-                });
+                UUID playerId = p.getUniqueId();
+                cooldownMap.put(playerId, System.currentTimeMillis());
+                isInFireballfight.put(playerId, true);
+                fightIds.put(playerId.toString(), fightId);
+
+                // Snap to the nearest arena spawn point so respawns are exact
+                Location start = p.getLocation().clone();
+                Location loc1 = fight.getArena() != null ? fight.getArena().getLoc1() : null;
+                Location loc2 = fight.getArena() != null ? fight.getArena().getLoc2() : null;
+                if (arrived && loc1 != null && loc2 != null
+                        && p.getWorld().equals(loc1.getWorld()) && p.getWorld().equals(loc2.getWorld())) {
+                    start = (p.getLocation().distanceSquared(loc1) <= p.getLocation().distanceSquared(loc2)
+                            ? loc1 : loc2).clone();
+                }
+                startPositions.put(playerId, start);
+                plugin.getLogger().info("Cached starting position for " + p.getName() + ": " + start);
             }
-        }.runTaskLater(plugin, 40L);
+        }.runTaskLater(plugin, attempt == 0 ? 40L : 10L);
     }
 
     @EventHandler

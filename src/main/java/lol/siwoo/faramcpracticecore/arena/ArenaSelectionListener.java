@@ -203,9 +203,13 @@ public class ArenaSelectionListener implements Listener {
                 }
             }
 
-            // Update SP arena locations
+            // Update SP arena locations — including the center, which SP's bot
+            // AI and build-rollback logic use as the fight area. Leaving it at
+            // the base arena's spawn made bots idle instead of fighting on
+            // cloned (especially build) arenas.
             fight.getArena().setLoc1(s1);
             fight.getArena().setLoc2(s2);
+            fight.getArena().setCenter(origin.clone());
 
             // Explicitly teleport the bot if present. Citizens NPCs can spawn a
             // few ticks after the fight starts, so retry instead of giving up —
@@ -253,7 +257,7 @@ public class ArenaSelectionListener implements Listener {
                     + (attempt > 0 ? " (after " + attempt + " retries)" : ""));
             return;
         }
-        if (attempt >= 20) {
+        if (attempt >= 50) {
             plugin.getLogger().warning("[Arena] Bot " + bot.getName()
                     + " never spawned — could not move it to the cloned arena.");
             return;

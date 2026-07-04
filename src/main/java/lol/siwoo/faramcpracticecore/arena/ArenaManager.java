@@ -415,6 +415,10 @@ public class ArenaManager {
         return activeSessions.get(fight);
     }
 
+    public boolean isPasteWorld(World world) {
+        return pasteWorlds.contains(world);
+    }
+
     public Map<String, ArenaConfig> getArenas() {
         return new HashMap<>(arenas);
     }
