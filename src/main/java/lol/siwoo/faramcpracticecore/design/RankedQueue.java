@@ -7,6 +7,9 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -16,7 +19,9 @@ import org.bukkit.potion.PotionEffectType;
 
 import java.util.Arrays;
 
-public class RankedQueue implements CommandExecutor {
+public class RankedQueue implements CommandExecutor, Listener {
+
+    private static final String GUI_TITLE = ChatColor.DARK_RED.toString() + ChatColor.BOLD + "Ranked: COMING SOON";
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
@@ -26,16 +31,24 @@ public class RankedQueue implements CommandExecutor {
         }
 
         Player player = (Player) sender;
-        player.openInventory(createQueueGUI(player, 0, "n word"));
+        player.openInventory(createQueueGUI(player, 0, "placeholder"));
 
         return true;
+    }
+
+    @EventHandler
+    public void onInventoryClick(InventoryClickEvent event) {
+        // Without this, players can drag the background panes out of the GUI
+        // (free items) or shift-click their own gear into it and lose it
+        if (event.getView().getTitle().equals(GUI_TITLE)) {
+            event.setCancelled(true);
+        }
     }
 
     public static Inventory createQueueGUI(Player player, int slot, String name) {
         // Inventory gui = Bukkit.createInventory(null, 45, ChatColor.DARK_PURPLE +
         // "Queue Selection");
-        Inventory gui = Bukkit.createInventory(null, 45,
-                ChatColor.DARK_RED.toString() + ChatColor.BOLD + "Ranked: COMING SOON");
+        Inventory gui = Bukkit.createInventory(null, 45, GUI_TITLE);
 
         // Fill background
         fillBackground(gui);

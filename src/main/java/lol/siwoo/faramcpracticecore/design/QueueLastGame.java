@@ -53,13 +53,16 @@ public class QueueLastGame implements CommandExecutor, Listener {
         Player p = e.getPlayer();
         UUID u = p.getUniqueId();
 
-        String kitName = e.getKit().getName();
-
-        if (kitName.toLowerCase().contains("ffa")) {
+        String kitName = e.getKit() != null ? e.getKit().getName() : null;
+        if (kitName == null || kitName.toLowerCase().contains("ffa")) {
             return;
         }
 
-        String kitId = kitName == null ? null : kitName.toLowerCase(java.util.Locale.ROOT);
-        lastKitData.put(u, kitId);
+        lastKitData.put(u, kitName.toLowerCase(java.util.Locale.ROOT));
+    }
+
+    @EventHandler
+    public void onPlayerQuit(org.bukkit.event.player.PlayerQuitEvent e) {
+        lastKitData.remove(e.getPlayer().getUniqueId());
     }
 }

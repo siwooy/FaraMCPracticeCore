@@ -82,6 +82,15 @@ public class DuelGUI implements CommandExecutor, Listener {
         }
 
         @EventHandler
+        public void onPlayerQuit(org.bukkit.event.player.PlayerQuitEvent e) {
+                // Entries are only removed on kit click — clean up on quit so
+                // ESC-closing the GUI and logging off doesn't leak them forever
+                UUID uuid = e.getPlayer().getUniqueId();
+                pendingDuelTargets.remove(uuid);
+                pendingDuelTargets.values().removeIf(target -> target.equals(uuid));
+        }
+
+        @EventHandler
         public void onDuelCommand(PlayerCommandPreprocessEvent e) {
                 String msg = e.getMessage();
                 String cmd = msg.split(" ")[0].toLowerCase();

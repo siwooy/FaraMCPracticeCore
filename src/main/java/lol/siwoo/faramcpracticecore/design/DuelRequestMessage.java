@@ -21,16 +21,32 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 public class DuelRequestMessage implements Listener, CommandExecutor {
 
     private static final Component SEPARATOR = Component.text("                                    ")
             .color(NamedTextColor.DARK_GRAY).decorate(TextDecoration.STRIKETHROUGH);
 
+    // The SP API exposes no way to remove a DuelRequest, so a declined request
+    // stays "live" until it expires. Track declines ourselves so Accept after
+    // Decline doesn't start the duel anyway. Keyed by target UUID → lowercase
+    // sender names.
+    private static final Map<UUID, Set<String>> declinedRequests = new HashMap<>();
+
     /**
      * Sends an apple-styled duel request message to both sender and target.
      */
     public static void sendDuelRequestMessage(Player sender, Player target, String kitName, String mapName) {
+        // A fresh request supersedes an earlier decline of the same pair
+        Set<String> declined = declinedRequests.get(target.getUniqueId());
+        if (declined != null) {
+            declined.remove(sender.getName().toLowerCase());
+        }
         String displayMap = (mapName != null && !mapName.isEmpty()) ? mapName : "Random";
 
         // ── Message to the SENDER ──
@@ -153,9 +169,12 @@ public class DuelRequestMessage implements Listener, CommandExecutor {
 
         StrikePracticeAPI api = StrikePractice.getAPI();
 
+        Set<String> declined = declinedRequests.get(target.getUniqueId());
+
         for (DuelRequest req : requests) {
             if (req.getDueler().equalsIgnoreCase(senderName)) {
-                if (req.hasExpired()) {
+                if (req.hasExpired()
+                        || (declined != null && declined.contains(senderName.toLowerCase()))) {
                     target.sendMessage(Component.text("  ✗ That duel request has expired.", NamedTextColor.RED));
                     target.playSound(target.getLocation(), Sound.BLOCK_NOTE_BLOCK_BANJO, 1.0f, 1.0f);
                     return;
@@ -164,6 +183,15 @@ public class DuelRequestMessage implements Listener, CommandExecutor {
                 // Guard: check if target is busy
                 if (api.isInFight(target) || api.isInQueue(target)) {
                     target.sendMessage(Component.text("  ✗ You're already in a fight or queue.", NamedTextColor.RED));
+                    target.playSound(target.getLocation(), Sound.BLOCK_NOTE_BLOCK_BANJO, 1.0f, 1.0f);
+                    return;
+                }
+
+                // Guard: the sender may have gone offline or entered a fight
+                // since sending the request
+                Player requestSender = Bukkit.getPlayer(senderName);
+                if (requestSender == null || !requestSender.isOnline() || api.isInFight(requestSender)) {
+                    target.sendMessage(Component.text("  ✗ That player can no longer duel.", NamedTextColor.RED));
                     target.playSound(target.getLocation(), Sound.BLOCK_NOTE_BLOCK_BANJO, 1.0f, 1.0f);
                     return;
                 }
@@ -205,7 +233,9 @@ public class DuelRequestMessage implements Listener, CommandExecutor {
 
         for (DuelRequest req : requests) {
             if (req.getDueler().equalsIgnoreCase(senderName)) {
-                // Remove the request by expiring it / just notify
+                // Mark declined so a later /duelaccept can't start it anyway
+                declinedRequests.computeIfAbsent(target.getUniqueId(), k -> new HashSet<>())
+                        .add(senderName.toLowerCase());
                 target.sendMessage(Component.empty()
                         .append(Component.text("  ✗ ", NamedTextColor.RED))
                         .append(Component.text("Duel declined.", NamedTextColor.GRAY)));
@@ -225,5 +255,10 @@ public class DuelRequestMessage implements Listener, CommandExecutor {
 
         target.sendMessage(Component.text("  ✗ No pending duel request from that player.", NamedTextColor.RED));
         target.playSound(target.getLocation(), Sound.BLOCK_NOTE_BLOCK_BANJO, 1.0f, 1.0f);
+    }
+
+    @EventHandler
+    public void onPlayerQuit(org.bukkit.event.player.PlayerQuitEvent e) {
+        declinedRequests.remove(e.getPlayer().getUniqueId());
     }
 }

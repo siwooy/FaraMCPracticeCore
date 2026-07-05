@@ -1,0 +1,13 @@
+# FaraMCPracticeCore configuration
+
+discord:
+  # Discord webhook URL for server up/down status messages.
+  # Leave empty to disable. Treat this URL as a secret — anyone holding it
+  # can post to your Discord channel.
+  status-webhook-url: ""
+
+status-check:
+  # Optional remote status endpoint checked once at startup. If it returns
+  # the text "disable", this plugin disables itself (nothing more).
+  # Leave empty to skip the check. Network errors are ignored.
+  url: ""

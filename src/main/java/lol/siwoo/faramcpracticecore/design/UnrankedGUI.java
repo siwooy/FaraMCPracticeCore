@@ -23,13 +23,20 @@ import org.bukkit.potion.PotionType;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 import static lol.siwoo.faramcpracticecore.design.QueueGUIListener.updateInventory;
 
 public class UnrankedGUI implements CommandExecutor, Listener {
 
         private static FaraMCPracticeCore plugin;
+        // One live update timer per player — createQueueGUI is called again on
+        // every queue join/leave while the GUI stays open, and without this the
+        // timers stacked unboundedly (each doing 36 placeholder lookups/second)
+        private static final Map<UUID, BukkitRunnable> updateTasks = new HashMap<>();
         StrikePracticeAPI api = StrikePractice.getAPI();
 
         public UnrankedGUI(FaraMCPracticeCore plugin) {
@@ -44,7 +51,7 @@ public class UnrankedGUI implements CommandExecutor, Listener {
                 }
 
                 Player player = (Player) sender;
-                player.openInventory(createQueueGUI(player, 0, "n word"));
+                player.openInventory(createQueueGUI(player, 0, "placeholder"));
 
                 return true;
         }
@@ -183,17 +190,25 @@ public class UnrankedGUI implements CommandExecutor, Listener {
                         gui.setItem(slot, item);
                 }
 
-                new BukkitRunnable() {
+                BukkitRunnable previous = updateTasks.remove(p.getUniqueId());
+                if (previous != null) {
+                        previous.cancel();
+                }
+
+                BukkitRunnable updateTask = new BukkitRunnable() {
                         @Override
                         public void run() {
                                 if (!p.isOnline() || !(Objects.equals(p.getOpenInventory().getTitle(),
                                                 ChatColor.YELLOW.toString() + ChatColor.BOLD + "Unranked Queue"))) {
+                                        updateTasks.remove(p.getUniqueId(), this);
                                         this.cancel();
                                         return;
                                 }
                                 updateInventory(p, p.getOpenInventory().getTopInventory());
                         }
-                }.runTaskTimer(plugin, 20L, 20L);
+                };
+                updateTasks.put(p.getUniqueId(), updateTask);
+                updateTask.runTaskTimer(plugin, 20L, 20L);
 
                 return gui;
         }

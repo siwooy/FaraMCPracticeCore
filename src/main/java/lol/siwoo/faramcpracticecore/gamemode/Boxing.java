@@ -6,8 +6,10 @@ import ga.strikepractice.events.FightEndEvent;
 import ga.strikepractice.events.FightStartEvent;
 import lol.siwoo.faramcpracticecore.FaraMCPracticeCore;
 
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -30,6 +32,9 @@ public class Boxing implements Listener {
         new BukkitRunnable() {
             @Override
             public void run() {
+                if (e.getFight().hasEnded()) {
+                    return; // fight ended during the delay — don't hand out speed
+                }
                 plugin.getLogger().info("boxing match detected. players:" + e.getFight().getPlayersInFight());
 
                 e.getFight().getPlayersInFight().forEach(p -> {
@@ -48,5 +53,16 @@ public class Boxing implements Listener {
         e.getFight().getPlayersInFight().forEach(player -> {
             player.removePotionEffect(PotionEffectType.SPEED);
         });
+    }
+
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent e) {
+        // Potion effects persist in player data — without this, disconnecting
+        // mid-boxing-fight kept the near-infinite Speed II across relogs
+        Player p = e.getPlayer();
+        if (api.getFight(p) != null && api.getFight(p).getKit() != null
+                && api.getFight(p).getKit().getName().equalsIgnoreCase("boxing")) {
+            p.removePotionEffect(PotionEffectType.SPEED);
+        }
     }
 }

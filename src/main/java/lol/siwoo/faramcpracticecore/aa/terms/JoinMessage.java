@@ -98,7 +98,7 @@ public class JoinMessage implements Listener {
             return;
         }
 
-        if (!(agreementUtils.hasPlayerAgreed(p))) {
+        if (agreementUtils != null && !agreementUtils.hasPlayerAgreed(p)) {
             e.setCancelled(true);
             p.sendMessage(ChatColor.RED + "You must agree to the terms and conditions first before playing the beta version of the server.");
         }
@@ -106,9 +106,11 @@ public class JoinMessage implements Listener {
 
     @EventHandler
     public void onGuiOpen(InventoryOpenEvent e) {
-        Player p = (Player) e.getPlayer();
+        if (!(e.getPlayer() instanceof Player p)) {
+            return;
+        }
 
-        if (!(agreementUtils.hasPlayerAgreed(p))) {
+        if (agreementUtils != null && !agreementUtils.hasPlayerAgreed(p)) {
             e.setCancelled(true);
             p.sendMessage(ChatColor.RED + "You must agree to the terms and conditions first before playing the beta version of the server.");
         }

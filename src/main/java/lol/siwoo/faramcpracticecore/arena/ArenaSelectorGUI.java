@@ -76,7 +76,7 @@ public class ArenaSelectorGUI implements Listener {
 
         Player p = (Player) e.getWhoClicked();
         ItemStack item = e.getCurrentItem();
-        if (item == null || item.getType() == Material.AIR)
+        if (item == null || item.getType() == Material.AIR || !item.hasItemMeta())
             return;
         if (item.getType() == Material.GRAY_STAINED_GLASS_PANE)
             return;
@@ -104,6 +104,15 @@ public class ArenaSelectorGUI implements Listener {
             // Run callback on next tick to avoid issues with inventory close
             Bukkit.getScheduler().runTask(Bukkit.getPluginManager().getPlugin("FaraMCPracticeCore"), callback);
         }
+    }
+
+    @EventHandler
+    public void onPlayerQuit(org.bukkit.event.player.PlayerQuitEvent e) {
+        // Static maps would otherwise retain entries for players who select a
+        // map (or have the GUI open) and then log out without ever fighting
+        UUID uuid = e.getPlayer().getUniqueId();
+        queuedSelections.remove(uuid);
+        pendingCallbacks.remove(uuid);
     }
 
     private static ItemStack createArenaItem(ArenaConfig cfg) {

@@ -41,9 +41,7 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.io.File;
-
-public final class FaraMCPracticeCore extends JavaPlugin implements Listener {
+public final class FaraMCPracticeCore extends JavaPlugin implements Listener, StatusChecker.shutDown {
     private StrikePracticeAPI strikePracticeAPI;
     private ArenaManager arenaManager;
     private TrainingManager trainingManager;
@@ -51,9 +49,19 @@ public final class FaraMCPracticeCore extends JavaPlugin implements Listener {
 
     @Override
     public void onEnable() {
+        saveDefaultConfig();
+
         StatusChecker statusChecker = new StatusChecker(this);
         statusChecker.check();
         apiCheck();
+
+        // apiCheck() disables the plugin when a required dependency is missing;
+        // registering listeners or creating the ArenaManager after that would
+        // throw IllegalPluginAccessException on the first scheduled task.
+        if (!isEnabled()) {
+            return;
+        }
+
         registerEvents();
 
         // JoinMessage.initialize(this);
@@ -102,6 +110,10 @@ public final class FaraMCPracticeCore extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        // Clear any pasted arenas and release chunk tickets before shutdown
+        if (arenaManager != null) {
+            arenaManager.shutdown();
+        }
         WebhookMessage.statusMessage("Down");
     }
 
@@ -174,7 +186,9 @@ public final class FaraMCPracticeCore extends JavaPlugin implements Listener {
         getCommand("unrankedgui").setExecutor(new UnrankedGUI(this));
         getCommand("unranked").setExecutor(new UnrankedGUI(this));
         getCommand("queue").setExecutor(new UnrankedGUI(this));
-        getCommand("ranked").setExecutor(new RankedQueue());
+        RankedQueue rankedQueue = new RankedQueue();
+        pm.registerEvents(rankedQueue, this);
+        getCommand("ranked").setExecutor(rankedQueue);
         getCommand("botduel").setExecutor(botQueue);
         getCommand("duel").setExecutor(duelGUI);
         DuelRequestMessage duelRequestMessage = new DuelRequestMessage();
@@ -201,25 +215,13 @@ public final class FaraMCPracticeCore extends JavaPlugin implements Listener {
         return arenaManager;
     }
 
+    @Override
     public void emergencyShutDown() {
-        getLogger().severe("800: Something went wrong. Please try again later.");
-
-        try {
-            File pluginFile = getFile();
-
-            getServer().getPluginManager().disablePlugin(this);
-
-            if (pluginFile.delete()) {
-                getLogger().severe("400: Something went wrong. Please try again later.");
-            } else {
-                getLogger().severe("400: Something went wrong. Please try again later.");
-                pluginFile.deleteOnExit(); // fallback to delete on exit
-                Bukkit.getServer().shutdown();
-            }
-        } catch (Exception e) {
-            getLogger().severe("400: Something went wrong. Please try again later.");
-            Bukkit.getServer().shutdown();
-        }
+        // Remote "disable" flag: disable this plugin only. Never delete the jar
+        // or shut the whole server down — a remote endpoint (or whoever
+        // controls/compromises it) must not be able to destroy a deployment.
+        getLogger().severe("Remote status check requested disable — disabling FaraMCPracticeCore.");
+        getServer().getPluginManager().disablePlugin(this);
     }
 
     // Basic permission check example

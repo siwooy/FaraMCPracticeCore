@@ -63,7 +63,11 @@ public class AICoach implements CommandExecutor {
                 }
 
                 // Check if the fight is still ongoing using StrikePractice API
-                if (apiRef != null && apiRef.getFight(player).hasEnded()) {
+                // (getFight returns null once the fight is removed — an NPE here
+                // would repeat every 10 ticks since Bukkit doesn't cancel
+                // repeating tasks on exception)
+                if (apiRef != null
+                        && (apiRef.getFight(player) == null || apiRef.getFight(player).hasEnded())) {
                     stopMonitoring(player.getUniqueId());
                     return;
                 }
@@ -95,6 +99,10 @@ public class AICoach implements CommandExecutor {
                 player.sendMessage(data);
             }
         };
+
+        // Cancel any previous monitor for this player — overwriting the map
+        // entry would orphan the old task and leave it running forever
+        stopMonitoring(player.getUniqueId());
 
         monitor.runTaskTimer(plugin, 0L, 10L); // 10 ticks = 0.5 seconds
         activeMonitors.put(player.getUniqueId(), monitor);

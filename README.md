@@ -72,6 +72,13 @@ The in-game setup command (`/faraarena <pos1|pos2|corner1|corner2|center> <mapNa
   - ProtocolLib
   - PlaceholderAPI
 
+## Configuration
+
+`plugins/FaraMCPracticeCore/config.yml`:
+
+- `discord.status-webhook-url` — Discord webhook for server up/down messages (empty = disabled). Keep this URL secret and out of version control.
+- `status-check.url` — optional remote status endpoint checked at startup; if it returns `disable`, the plugin disables itself. Empty = skipped. Network errors are ignored (fail-open).
+
 ## Building
 
 Maven project; the StrikePractice API jar is bundled under `libs/`.
