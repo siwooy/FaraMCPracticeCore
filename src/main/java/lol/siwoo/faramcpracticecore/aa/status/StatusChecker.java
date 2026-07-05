@@ -1,6 +1,5 @@
 package lol.siwoo.faramcpracticecore.aa.status;
 
-import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 
@@ -9,23 +8,31 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
-public class StatusChecker{
-    private final String STATUS_CHECK_URL = "https://api.siwoo.lol/faramcpracticecore/status.txt";
+/**
+ * Optional remote status check. If the configured endpoint returns "disable",
+ * the plugin disables itself. Network failures are fail-OPEN: an unreachable
+ * status endpoint must never take the server down with it.
+ */
+public class StatusChecker {
     private final JavaPlugin plugin;
 
     public StatusChecker(JavaPlugin plugin) {
         this.plugin = plugin;
     }
 
-
     public void check() {
+        String statusUrl = plugin.getConfig().getString("status-check.url", "");
+        if (statusUrl == null || statusUrl.isBlank()) {
+            return; // not configured — skip the check entirely
+        }
+
         new BukkitRunnable() {
             @Override
             public void run() {
-                plugin.getLogger().info("Starting Authentication check...");
+                plugin.getLogger().info("Starting status check...");
 
                 try {
-                    URL url = new URL(STATUS_CHECK_URL);
+                    URL url = new URL(statusUrl);
 
                     HttpURLConnection connection = (HttpURLConnection) url.openConnection();
                     connection.setRequestMethod("GET");
@@ -36,31 +43,32 @@ public class StatusChecker{
                     int responseCode = connection.getResponseCode();
 
                     if (responseCode == HttpURLConnection.HTTP_OK) {
-                        BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                        String status = reader.readLine();
-                        reader.close();
+                        String status;
+                        try (BufferedReader reader = new BufferedReader(
+                                new InputStreamReader(connection.getInputStream()))) {
+                            status = reader.readLine();
+                        }
 
                         if (status != null && status.trim().equalsIgnoreCase("disable")) {
+                            // Bukkit API must be touched on the main thread only
                             new BukkitRunnable() {
                                 @Override
                                 public void run() {
-                                    if (plugin instanceof shutDown) {
-                                        ((shutDown) plugin).emergencyShutDown();
+                                    if (plugin instanceof shutDown s) {
+                                        s.emergencyShutDown();
                                     }
                                 }
                             }.runTask(plugin);
                         } else {
-                            Bukkit.getServer().getLogger().info("Authentication status: Operational");
+                            plugin.getLogger().info("Status check: Operational");
                         }
                     } else {
-                        Bukkit.getServer().getLogger().severe("Could not Authenticate. Please Try again later.");
-                        Bukkit.getPluginManager().disablePlugin(plugin);
-                        Bukkit.getServer().shutdown();
+                        plugin.getLogger().warning("Status check returned HTTP " + responseCode
+                                + " — continuing normally.");
                     }
                 } catch (Exception e) {
-                    Bukkit.getServer().getLogger().severe("An severe error occurred while authenticating:");
-                    Bukkit.getPluginManager().disablePlugin(plugin);
-                    Bukkit.getServer().shutdown();
+                    plugin.getLogger().warning("Status check failed (" + e.getMessage()
+                            + ") — continuing normally.");
                 }
             }
         }.runTaskAsynchronously(plugin);

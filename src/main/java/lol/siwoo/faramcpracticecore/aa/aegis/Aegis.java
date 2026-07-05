@@ -9,7 +9,9 @@ import org.bukkit.entity.Player;
 public class Aegis implements CommandExecutor {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String s, String[] args) {
-        Player p = (Player) sender;
+        if (!(sender instanceof Player p)) {
+            return true;
+        }
         if (!p.hasPermission("faramcpracticecore.admin")) {
             p.sendMessage(ChatColor.GRAY + "Unknown command. Type" + ChatColor.RED + " /help " + ChatColor.GRAY + "for help.");
             return true;

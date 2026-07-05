@@ -33,7 +33,8 @@ public class SuggestPartyOwner implements CommandExecutor {
             return true;
         }
 
-        if (api.getParty(p).getOwner().equals(p)) {
+        // getOwner() returns the owner's name, not a Player
+        if (api.getParty(p).getOwner().equals(p.getName())) {
             p.sendMessage(MessageStyle.error("You're the party owner. Start an event yourself."));
             return true;
         }

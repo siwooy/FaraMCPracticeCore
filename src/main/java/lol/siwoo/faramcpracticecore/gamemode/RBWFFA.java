@@ -49,8 +49,10 @@ public class RBWFFA implements Listener {
     @EventHandler
     public void onPlayerHit(EntityDamageByEntityEvent e) {
         if (!(e.getEntity() instanceof Player)) return;
+        // Damager can be an arrow, fireball, TNT, etc. — casting blindly threw
+        // ClassCastException on every non-melee hit server-wide
+        if (!(e.getDamager() instanceof Player v)) return;
         Player p = (Player) e.getEntity();
-        Player v = (Player) e.getDamager();
 
         if (api.getFight(p) == null) {
             return;
@@ -80,12 +82,18 @@ public class RBWFFA implements Listener {
         }
 
         if (api.getFight(p).getArena().getName().equals("rbwffa")) {
-            if (block == null || block.equals(ItemStack.of(Material.AIR))) return;
+            if (block == null || block.getType().isAir()) return;
             ItemStack finalBlock = block;
             new BukkitRunnable() {
                 @Override
                 public void run() {
-                    finalBlock.add(1);
+                    // Refund only if the stack still exists and has room —
+                    // blindly adding could exceed max stack size or resurrect
+                    // a stack the player already used up
+                    if (p.isOnline() && finalBlock.getAmount() > 0
+                            && finalBlock.getAmount() < finalBlock.getMaxStackSize()) {
+                        finalBlock.add(1);
+                    }
                 }
             }.runTaskLater(plugin, 100L);
         }
@@ -101,7 +109,7 @@ public class RBWFFA implements Listener {
             return;
         }
 
-        if (api.getFight(p).getArena().getName().equals("rbwffa") && placedBlock.equals(Material.WHITE_WOOL)) {
+        if (api.getFight(p).getArena().getName().equals("rbwffa") && placedBlock.getType() == Material.WHITE_WOOL) {
             e.setCancelled(true);
             placedBlock.setType(Material.AIR);
         }

@@ -77,6 +77,11 @@ public class WindFight implements Listener {
             fightIds.remove(playerId.toString());
             lastLaunch.remove(playerId.toString());
             lastPush.remove(playerId.toString());
+            // Restore the game mode changed at fight start — otherwise players
+            // stay stuck in adventure mode after the fight
+            if (p.getGameMode() == GameMode.ADVENTURE) {
+                p.setGameMode(GameMode.SURVIVAL);
+            }
         });
     }
 
@@ -98,7 +103,7 @@ public class WindFight implements Listener {
             Long lastLaunchTime = lastLaunch.get(p.getUniqueId().toString());
             if (lastLaunchTime != null && (System.currentTimeMillis() - lastLaunchTime) < 2000) {
                 p.playSound(p.getLocation(), Sound.ENTITY_ENDERMAN_SCREAM, 1.0f, 1.0f);
-                p.sendActionBar(Component.text("Launch is available after " + (2000 - (System.currentTimeMillis() - lastLaunchTime)) / 1000 + "s")
+                p.sendActionBar(Component.text("Launch is available after " + ((2000 - (System.currentTimeMillis() - lastLaunchTime) + 999) / 1000) + "s")
                         .color(NamedTextColor.GRAY));
                 return;
             }
@@ -109,7 +114,7 @@ public class WindFight implements Listener {
             Long lastPushTime = lastPush.get(p.getUniqueId().toString());
             if (lastPushTime != null && (System.currentTimeMillis() - lastPushTime) < 2000) {
                 p.playSound(p.getLocation(), Sound.ENTITY_ENDERMAN_SCREAM, 1.0f, 1.0f);
-                p.sendActionBar(Component.text("Push is available after " + (2000 - (System.currentTimeMillis() - lastPushTime)) / 1000 + "s")
+                p.sendActionBar(Component.text("Push is available after " + ((2000 - (System.currentTimeMillis() - lastPushTime) + 999) / 1000) + "s")
                         .color(NamedTextColor.GRAY));
                 return;
             }
@@ -151,8 +156,13 @@ public class WindFight implements Listener {
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent e) {
         UUID playerId = e.getPlayer().getUniqueId();
-        fightIds.remove(playerId.toString());
+        boolean wasInWindFight = fightIds.remove(playerId.toString()) != null;
         lastLaunch.remove(playerId.toString());
         lastPush.remove(playerId.toString());
+        // Game mode persists in player data — restore it so a mid-fight
+        // disconnect doesn't leave the player in adventure mode forever
+        if (wasInWindFight && e.getPlayer().getGameMode() == GameMode.ADVENTURE) {
+            e.getPlayer().setGameMode(GameMode.SURVIVAL);
+        }
     }
 }

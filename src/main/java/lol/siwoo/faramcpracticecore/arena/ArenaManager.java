@@ -22,13 +22,22 @@ import java.io.*;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.logging.Level;
 
 public class ArenaManager {
+    // Chunk radius around a slot center that gets force-loaded while in use
+    private static final int CHUNK_TICKET_RADIUS = 2;
+    private static final int SLOT_SPACING = 5000;
+
     private final FaraMCPracticeCore plugin;
     private final Map<String, ArenaConfig> arenas = new HashMap<>();
     private final Map<Fight, FightSession> activeSessions = new ConcurrentHashMap<>();
     private final List<World> pasteWorlds = new ArrayList<>();
+    // Slots whose fights have ended and whose blocks are cleared — safe to reuse.
+    // Recycling keeps coordinates bounded instead of drifting forever outward.
+    private final Deque<Location> freeSlots = new ConcurrentLinkedDeque<>();
+    private final Random random = new Random();
     private final File arenaFolder;
     private int nextXOffset = 0, currentWorldIndex = 0;
 
@@ -74,7 +83,12 @@ public class ArenaManager {
                 return;
             }
 
-            Location spawnLoc = new Location(mainWorld, 0, 100, 0);
+            // Anchor the base arenas at the practice spawn: fighters (especially
+            // bots, which aren't teleport-blocked) stand here while the schematic
+            // paste runs, so it must be solid ground — not a point in mid-air.
+            Location spawnLoc = StrikePractice.getAPI().getSpawnLocation();
+            if (spawnLoc == null)
+                spawnLoc = new Location(mainWorld, 0, 100, 0);
 
             // Remove all extra dynamic arenas (anything with underscore like dynamic_2,
             // dynamicbuild_3)
@@ -185,32 +199,101 @@ public class ArenaManager {
     public CompletableFuture<FightSession> createSession(Fight fight, ArenaConfig config) {
         if (pasteWorlds.isEmpty())
             return CompletableFuture.completedFuture(null);
-        World world = pasteWorlds.get(currentWorldIndex);
-        Location center = new Location(world, nextXOffset, 100, 0);
 
-        world.addPluginChunkTicket(center.getBlockX() >> 4, center.getBlockZ() >> 4, plugin);
+        // Guard against duplicate start events creating two sessions (and two
+        // pastes) for the same fight
+        FightSession existing = activeSessions.get(fight);
+        if (existing != null)
+            return CompletableFuture.completedFuture(existing);
 
-        currentWorldIndex = (currentWorldIndex + 1) % pasteWorlds.size();
-        if (currentWorldIndex == 0)
-            nextXOffset += 5000;
+        Location center = allocateSlot();
+        addChunkTickets(center);
 
         FightSession session = new FightSession(fight, config, center);
         activeSessions.put(fight, session);
 
-        return pasteArena(config, center).thenApply(v -> session);
+        CompletableFuture<Boolean> paste = pasteArena(config, center);
+        session.setPasteFuture(paste);
+
+        return paste.thenApply(success -> {
+            if (!success) {
+                // Paste failed — tear the session down so players are never
+                // teleported into an empty slot, and recycle the slot.
+                activeSessions.remove(fight, session);
+                removeChunkTickets(center);
+                freeSlots.addLast(center);
+                return null;
+            }
+            return session;
+        });
     }
 
-    private CompletableFuture<Void> pasteArena(ArenaConfig config, Location center) {
-        CompletableFuture<Void> future = new CompletableFuture<>();
+    /**
+     * Reuses a slot freed by a finished fight when possible; otherwise carves a
+     * new one out of the paste worlds.
+     */
+    private Location allocateSlot() {
+        Location recycled = freeSlots.pollFirst();
+        if (recycled != null)
+            return recycled;
+
+        World world = pasteWorlds.get(currentWorldIndex);
+        Location center = new Location(world, nextXOffset, 100, 0);
+
+        currentWorldIndex = (currentWorldIndex + 1) % pasteWorlds.size();
+        if (currentWorldIndex == 0)
+            nextXOffset += SLOT_SPACING;
+        return center;
+    }
+
+    private void addChunkTickets(Location center) {
+        World world = center.getWorld();
+        int cx = center.getBlockX() >> 4;
+        int cz = center.getBlockZ() >> 4;
+        for (int dx = -CHUNK_TICKET_RADIUS; dx <= CHUNK_TICKET_RADIUS; dx++) {
+            for (int dz = -CHUNK_TICKET_RADIUS; dz <= CHUNK_TICKET_RADIUS; dz++) {
+                world.getChunkAt(cx + dx, cz + dz).load(true);
+                world.addPluginChunkTicket(cx + dx, cz + dz, plugin);
+            }
+        }
+    }
+
+    private void removeChunkTickets(Location center) {
+        World world = center.getWorld();
+        int cx = center.getBlockX() >> 4;
+        int cz = center.getBlockZ() >> 4;
+        for (int dx = -CHUNK_TICKET_RADIUS; dx <= CHUNK_TICKET_RADIUS; dx++) {
+            for (int dz = -CHUNK_TICKET_RADIUS; dz <= CHUNK_TICKET_RADIUS; dz++) {
+                world.removePluginChunkTicket(cx + dx, cz + dz, plugin);
+            }
+        }
+    }
+
+    /**
+     * Pastes the arena schematic asynchronously. The returned future completes on
+     * the main thread with {@code true} only if every block was written; any
+     * failure (missing schematic, unknown format, WorldEdit error) completes it
+     * with {@code false} so callers can abort the fight setup instead of
+     * teleporting players into a void slot.
+     */
+    private CompletableFuture<Boolean> pasteArena(ArenaConfig config, Location center) {
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
         File file = new File(arenaFolder, config.getSchematicName());
         if (!file.exists()) {
             plugin.getLogger().warning("Schematic not found: " + file.getAbsolutePath());
-            future.complete(null);
+            future.complete(false);
+            return future;
+        }
+
+        ClipboardFormat format = ClipboardFormats.findByFile(file);
+        if (format == null) {
+            plugin.getLogger().warning("Unknown schematic format: " + file.getAbsolutePath());
+            future.complete(false);
             return future;
         }
 
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            try (ClipboardReader reader = ClipboardFormats.findByFile(file).getReader(new FileInputStream(file))) {
+            try (ClipboardReader reader = format.getReader(new FileInputStream(file))) {
                 Clipboard cb = reader.read();
 
                 try (EditSession session = WorldEdit.getInstance()
@@ -237,22 +320,12 @@ public class ArenaManager {
 
                 // Complete the future on the MAIN THREAD so downstream code is thread-safe
                 // and blocks have had time to sync to the world
-                Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                    // Force-load the chunks around the arena center
-                    World world = center.getWorld();
-                    int cx = center.getBlockX() >> 4;
-                    int cz = center.getBlockZ() >> 4;
-                    for (int dx = -2; dx <= 2; dx++) {
-                        for (int dz = -2; dz <= 2; dz++) {
-                            world.getChunkAt(cx + dx, cz + dz).load(true);
-                            world.addPluginChunkTicket(cx + dx, cz + dz, plugin);
-                        }
-                    }
-                    future.complete(null);
-                }, 10L); // 10 tick delay to let FAWE sync blocks to the world
+                Bukkit.getScheduler().runTaskLater(plugin,
+                        () -> future.complete(true),
+                        10L); // 10 tick delay to let FAWE sync blocks to the world
             } catch (Exception e) {
                 plugin.getLogger().log(Level.SEVERE, "Failed to paste arena: " + e.getMessage(), e);
-                Bukkit.getScheduler().runTask(plugin, () -> future.complete(null));
+                Bukkit.getScheduler().runTask(plugin, () -> future.complete(false));
             }
         });
         return future;
@@ -261,81 +334,89 @@ public class ArenaManager {
     public void endSession(Fight fight) {
         FightSession s = activeSessions.remove(fight);
 
-        if (s != null) {
-            plugin.getLogger().info("Ending session for fight, clearing arena at "
-                    + s.getCenter().getWorld().getName() + " " + s.getCenter().getBlockX() + ","
-                    + s.getCenter().getBlockY() + "," + s.getCenter().getBlockZ());
-
-            // Clear blocks FIRST, then release chunk tickets after completion
-            clearArenaAsync(s.getConfig(), s.getCenter()).thenRun(() -> {
-                Bukkit.getScheduler().runTask(plugin, () -> {
-                    World world = s.getCenter().getWorld();
-                    int cx = s.getCenter().getBlockX() >> 4;
-                    int cz = s.getCenter().getBlockZ() >> 4;
-                    for (int dx = -2; dx <= 2; dx++) {
-                        for (int dz = -2; dz <= 2; dz++) {
-                            world.removePluginChunkTicket(cx + dx, cz + dz, plugin);
-                        }
-                    }
-                    plugin.getLogger().info("Released chunk tickets after arena clear.");
-                });
-            });
-        } else {
+        if (s == null) {
             plugin.getLogger().warning("endSession called but no active session found for this fight.");
+            return;
         }
+
+        plugin.getLogger().info("Ending session for fight, clearing arena at "
+                + s.getCenter().getWorld().getName() + " " + s.getCenter().getBlockX() + ","
+                + s.getCenter().getBlockY() + "," + s.getCenter().getBlockZ());
+
+        // Wait for a still-running paste to finish before clearing — otherwise the
+        // clear runs first and the late paste leaves the arena stuck in the world.
+        CompletableFuture<Boolean> paste = s.getPasteFuture();
+        if (paste == null)
+            paste = CompletableFuture.completedFuture(true);
+
+        paste.whenComplete((ok, err) -> clearArenaAsync(s.getConfig(), s.getCenter()).thenRun(() -> {
+            // Release chunk tickets and recycle the slot only AFTER the blocks
+            // are actually cleared
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                removeChunkTickets(s.getCenter());
+                freeSlots.addLast(s.getCenter());
+                plugin.getLogger().info("Released chunk tickets after arena clear.");
+            });
+        }));
     }
 
     private CompletableFuture<Void> clearArenaAsync(ArenaConfig config, Location center) {
         CompletableFuture<Void> future = new CompletableFuture<>();
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            try {
-                com.sk89q.worldedit.world.World weWorld = BukkitAdapter.adapt(center.getWorld());
-
-                Vector c1Offset = config.getCorner1();
-                Vector c2Offset = config.getCorner2();
-                Vector ctrOffset = config.getCenter();
-
-                // Account for the center offset (same offset used during paste)
-                int baseX = center.getBlockX() + ctrOffset.getBlockX();
-                int baseY = center.getBlockY() + ctrOffset.getBlockY();
-                int baseZ = center.getBlockZ() + ctrOffset.getBlockZ();
-
-                BlockVector3 min = BlockVector3.at(
-                        baseX + Math.min(c1Offset.getBlockX(), c2Offset.getBlockX()),
-                        baseY + Math.min(c1Offset.getBlockY(), c2Offset.getBlockY()),
-                        baseZ + Math.min(c1Offset.getBlockZ(), c2Offset.getBlockZ()));
-                BlockVector3 max = BlockVector3.at(
-                        baseX + Math.max(c1Offset.getBlockX(), c2Offset.getBlockX()),
-                        baseY + Math.max(c1Offset.getBlockY(), c2Offset.getBlockY()),
-                        baseZ + Math.max(c1Offset.getBlockZ(), c2Offset.getBlockZ()));
-
-                plugin.getLogger()
-                        .info("Clearing region from " + min + " to " + max + " in " + center.getWorld().getName());
-
-                try (EditSession session = WorldEdit.getInstance().newEditSession(weWorld)) {
-                    session.setSideEffectApplier(SideEffectSet.none());
-                    CuboidRegion region = new CuboidRegion(weWorld, min, max);
-                    int affected = session.setBlocks((Region) region, BlockTypes.AIR.getDefaultState().toBaseBlock());
-                    session.flushQueue();
-                    plugin.getLogger().info("Cleared " + affected + " blocks.");
-                }
-
-                future.complete(null);
-            } catch (Exception e) {
-                plugin.getLogger().log(Level.SEVERE, "Failed to clear arena: " + e.getMessage(), e);
-                future.complete(null);
-            }
+            clearArenaBlocks(config, center);
+            future.complete(null);
         });
         return future;
     }
 
+    private void clearArenaBlocks(ArenaConfig config, Location center) {
+        try {
+            com.sk89q.worldedit.world.World weWorld = BukkitAdapter.adapt(center.getWorld());
+
+            Vector c1Offset = config.getCorner1();
+            Vector c2Offset = config.getCorner2();
+            Vector ctrOffset = config.getCenter();
+
+            // Account for the center offset (same offset used during paste)
+            int baseX = center.getBlockX() + ctrOffset.getBlockX();
+            int baseY = center.getBlockY() + ctrOffset.getBlockY();
+            int baseZ = center.getBlockZ() + ctrOffset.getBlockZ();
+
+            BlockVector3 min = BlockVector3.at(
+                    baseX + Math.min(c1Offset.getBlockX(), c2Offset.getBlockX()),
+                    baseY + Math.min(c1Offset.getBlockY(), c2Offset.getBlockY()),
+                    baseZ + Math.min(c1Offset.getBlockZ(), c2Offset.getBlockZ()));
+            BlockVector3 max = BlockVector3.at(
+                    baseX + Math.max(c1Offset.getBlockX(), c2Offset.getBlockX()),
+                    baseY + Math.max(c1Offset.getBlockY(), c2Offset.getBlockY()),
+                    baseZ + Math.max(c1Offset.getBlockZ(), c2Offset.getBlockZ()));
+
+            plugin.getLogger()
+                    .info("Clearing region from " + min + " to " + max + " in " + center.getWorld().getName());
+
+            try (EditSession session = WorldEdit.getInstance().newEditSession(weWorld)) {
+                session.setSideEffectApplier(SideEffectSet.none());
+                CuboidRegion region = new CuboidRegion(weWorld, min, max);
+                int affected = session.setBlocks((Region) region, BlockTypes.AIR.getDefaultState().toBaseBlock());
+                session.flushQueue();
+                plugin.getLogger().info("Cleared " + affected + " blocks.");
+            }
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.SEVERE, "Failed to clear arena: " + e.getMessage(), e);
+        }
+    }
+
     public ArenaConfig getRandomArenaForKit(String kit) {
         List<ArenaConfig> valid = arenas.values().stream().filter(c -> c.isKitAllowed(kit)).toList();
-        return valid.isEmpty() ? null : valid.get(new Random().nextInt(valid.size()));
+        return valid.isEmpty() ? null : valid.get(random.nextInt(valid.size()));
     }
 
     public FightSession getSession(Fight fight) {
         return activeSessions.get(fight);
+    }
+
+    public boolean isPasteWorld(World world) {
+        return pasteWorlds.contains(world);
     }
 
     public Map<String, ArenaConfig> getArenas() {
@@ -343,16 +424,28 @@ public class ArenaManager {
     }
 
     public void shutdown() {
-        activeSessions.keySet().forEach(this::endSession);
+        // The scheduler rejects new tasks while the plugin is disabling, so the
+        // async endSession path can never run here — clear synchronously instead.
+        for (FightSession s : activeSessions.values()) {
+            clearArenaBlocks(s.getConfig(), s.getCenter());
+            removeChunkTickets(s.getCenter());
+        }
+        activeSessions.clear();
     }
 
     public Arena getOrAllocateDynamicArena(boolean isBuild) {
         String baseName = isBuild ? "dynamicbuild" : "dynamic";
         List<Arena> existing = StrikePractice.getAPI().getArenas();
 
-        // 1. Try to find a free existing arena
+        // 1. Try to find a free existing arena of the SAME variant. Matching on a
+        // bare "dynamic" prefix would also grab "dynamicbuild" arenas, handing
+        // non-build fights a build arena.
         for (Arena a : existing) {
-            if (a.getName().toLowerCase().startsWith(baseName) && !a.isUsing()) {
+            String name = a.getName().toLowerCase();
+            boolean sameVariant = name.equals(baseName) || name.startsWith(baseName + "_");
+            if (!isBuild && name.startsWith("dynamicbuild"))
+                sameVariant = false;
+            if (sameVariant && !a.isUsing()) {
                 return a;
             }
         }

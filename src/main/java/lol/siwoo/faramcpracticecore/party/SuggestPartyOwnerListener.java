@@ -24,10 +24,13 @@ public class SuggestPartyOwnerListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        Player p = (Player) event.getWhoClicked();
         InventoryView view = event.getView();
 
         if (!view.getTitle().equals(GUI_TITLE)) {
+            return;
+        }
+
+        if (!(event.getWhoClicked() instanceof Player p)) {
             return;
         }
 

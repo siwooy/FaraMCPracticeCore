@@ -25,12 +25,16 @@ public class KitEditor implements Listener {
         Player p = e.getPlayer();
 
         if (api.isEditingKit(p)) {
-            if (e.getMessage().toLowerCase().startsWith("/kiteditor")) {
-                p.sendMessage(MessageStyle.info("Left Kit Editor."));
+            // Compare the command word exactly — startsWith("/l") also matched
+            // /list, /lobby, /lp, /login, ... and force-left the kit editor
+            String commandWord = e.getMessage().toLowerCase().split(" ")[0];
+
+            if (commandWord.equals("/kiteditor")) {
                 return;
             }
 
-            if (e.getMessage().toLowerCase().startsWith("/leave") || e.getMessage().toLowerCase().startsWith("/l")) {
+            if (commandWord.equals("/leave") || commandWord.equals("/l")) {
+                e.setCancelled(true);
                 Bukkit.dispatchCommand(p, "kiteditor leave");
 
                 p.sendMessage(MessageStyle.info("Left Kit Editor."));

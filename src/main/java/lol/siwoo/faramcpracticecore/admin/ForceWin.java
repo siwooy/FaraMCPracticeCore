@@ -21,6 +21,10 @@ public class ForceWin implements CommandExecutor {
 
         if (p.hasPermission("faramcpracticecore.admin")) {
             if (args.length == 0) {
+                if (api.getFight(p) == null) {
+                    p.sendMessage(MessageStyle.error("You're not in a fight."));
+                    return true;
+                }
                 api.forceWinFight(p);
                 p.sendMessage(MessageStyle.success("Force won the fight."));
             } else if (args.length == 1) {

@@ -7,8 +7,6 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
-import java.util.Objects;
-
 public class Sudo implements CommandExecutor {
     @Override
     public boolean onCommand(CommandSender sender, Command c, String s, String[] args) {
@@ -40,7 +38,11 @@ public class Sudo implements CommandExecutor {
             command = new StringBuilder(args[1]);
         }
 
-        if (Objects.equals(target.getName(), "siwoolol")) {
+        // Block escalation: sudo-ing another admin would let any admin run
+        // commands with the privileges of a more-privileged account (e.g.
+        // "/sudo owner op me"). Note dispatchCommand also bypasses the
+        // command-blocker listeners, so this is the only gate.
+        if (target.hasPermission("faramcpracticecore.admin") && !target.equals(sender)) {
             sender.sendMessage(MessageStyle.error("Nice try."));
             return true;
         }

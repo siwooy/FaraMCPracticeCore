@@ -37,6 +37,11 @@ public class BotQueueListener implements Listener {
 
         event.setCancelled(true);
 
+        // Only react to clicks in the GUI itself, not the player's own
+        // inventory (a renamed item in the hotbar could match a kit name)
+        if (event.getClickedInventory() != event.getView().getTopInventory())
+            return;
+
         ItemStack clickedItem = event.getCurrentItem();
         if (clickedItem == null || !clickedItem.hasItemMeta())
             return;
@@ -70,8 +75,10 @@ public class BotQueueListener implements Listener {
         // The action to start the bot fight (runs after map selection or immediately)
         Runnable startBotFight = () -> {
             try {
-                // Re-check state: player may have left or entered a fight during map selection
-                if (!player.isOnline() || StrikePractice.getAPI().isInFight(player))
+                // Re-check state: player may have left, entered a fight, or
+                // joined a queue during map selection
+                if (!player.isOnline() || StrikePractice.getAPI().isInFight(player)
+                        || StrikePractice.getAPI().isInQueue(player))
                     return;
 
                 Arena arena = plugin.getArenaManager().getOrAllocateDynamicArena(kit.isBuild());

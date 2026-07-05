@@ -42,6 +42,11 @@ public class DuelGUIListener implements Listener {
 
         event.setCancelled(true);
 
+        // Only react to clicks in the GUI itself, not the player's own
+        // inventory (a renamed item in the hotbar could match a kit name)
+        if (event.getClickedInventory() != event.getView().getTopInventory())
+            return;
+
         ItemStack clickedItem = event.getCurrentItem();
         if (clickedItem == null || !clickedItem.hasItemMeta())
             return;
@@ -79,15 +84,6 @@ public class DuelGUIListener implements Listener {
             return;
         }
 
-        // Get the dynamic arena using centralized manager (auto-creates if all busy)
-        Arena dynamicArena = plugin.getArenaManager().getOrAllocateDynamicArena(kit.isBuild());
-
-        if (dynamicArena == null) {
-            player.sendMessage(MessageStyle.error("No arena available. Try again."));
-            player.closeInventory();
-            return;
-        }
-
         // Guard: check if either player is busy now
         if (api.isInFight(player) || api.isInQueue(player)) {
             player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BANJO, 1.0f, 1.0f);
@@ -121,8 +117,16 @@ public class DuelGUIListener implements Listener {
                     return;
                 }
 
-                Arena finalArena = dynamicArena;
-                api.sendDuelRequest(player, target, kit, finalArena, true);
+                // Allocate the arena HERE, not at click time — during map
+                // selection another duel may have taken the arena that was
+                // free when the kit was clicked
+                Arena dynamicArena = plugin.getArenaManager().getOrAllocateDynamicArena(kit.isBuild());
+                if (dynamicArena == null) {
+                    player.sendMessage(MessageStyle.error("No arena available. Try again."));
+                    return;
+                }
+
+                api.sendDuelRequest(player, target, kit, dynamicArena, true);
 
                 // Get selected map name (peek, don't remove — fight system needs it)
                 lol.siwoo.faramcpracticecore.arena.ArenaConfig selectedMap = ArenaSelectorGUI.queuedSelections

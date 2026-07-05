@@ -79,8 +79,13 @@ public class ArenaSelectionListener implements Listener {
         if (event.getBot() != null) {
             pendingBots.put(event.getFight(), event.getBot());
         }
-        // Bot fight: use the single human player
-        handleFightStart(event.getFight(), List.of(event.getPlayer()));
+        // Bot fight: use the single human player (null-safe — List.of throws on
+        // null, and an exception here would leak the whole session)
+        handleFightStart(event.getFight(), singletonPlayerList(event.getPlayer()));
+    }
+
+    private static List<Player> singletonPlayerList(Player player) {
+        return player != null ? List.of(player) : List.of();
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -155,6 +160,27 @@ public class ArenaSelectionListener implements Listener {
                         playerCorrectWorld.remove(p.getUniqueId());
                     }
                 }
+                // Drop dedup/bot state too so the fight objects don't leak
+                handledStarts.remove(fight);
+                pendingBots.remove(fight);
+                plugin.getLogger().warning("[Arena] Paste failed for '" + config.getName()
+                        + "' — fight continues on the SP arena's own location.");
+                return;
+            }
+
+            // The fight may have ended while the paste was running (e.g. a bot
+            // dying instantly at the base arena location). Teleporting players
+            // into a session that's being torn down would strand them in the
+            // paste world after the fight.
+            if (handledEnds.contains(fight) || manager.getSession(fight) != session) {
+                for (Player p : players) {
+                    if (p != null) {
+                        pendingPaste.remove(p.getUniqueId());
+                        playerCorrectWorld.remove(p.getUniqueId());
+                    }
+                }
+                pendingBots.remove(fight);
+                plugin.getLogger().info("[Arena] Fight ended before paste finished — skipping teleport.");
                 return;
             }
             session.setSpArena(spArena);
@@ -177,17 +203,21 @@ public class ArenaSelectionListener implements Listener {
                 }
             }
 
-            // Update SP arena locations
+            // Update SP arena locations — including the center, which SP's bot
+            // AI and build-rollback logic use as the fight area. Leaving it at
+            // the base arena's spawn made bots idle instead of fighting on
+            // cloned (especially build) arenas.
             fight.getArena().setLoc1(s1);
             fight.getArena().setLoc2(s2);
+            fight.getArena().setCenter(origin.clone());
 
-            // Explicitly teleport the bot if present
+            // Explicitly teleport the bot if present. Citizens NPCs can spawn a
+            // few ticks after the fight starts, so retry instead of giving up —
+            // otherwise the bot fights at the old arena while the player is in
+            // the clone.
             NPC bot = pendingBots.remove(fight);
-            if (bot != null && bot.isSpawned()) {
-                bot.teleport(s2, PlayerTeleportEvent.TeleportCause.PLUGIN);
-                plugin.getLogger().info("[Arena] Force teleported bot " + bot.getName() + " to " + s2.toVector());
-            } else if (bot != null) {
-                plugin.getLogger().warning("[Arena] Bot " + bot.getName() + " is not spawned!");
+            if (bot != null) {
+                teleportBotWhenSpawned(fight, bot, s2, 0);
             }
 
             // Unblock and teleport players
@@ -210,6 +240,30 @@ public class ArenaSelectionListener implements Listener {
             plugin.getLogger().info("[Arena] Teleported " + players.size() + " player(s) to '"
                     + config.getName() + "' in " + s1.getWorld().getName());
         });
+    }
+
+    /**
+     * Teleports the bot to its arena spawn once its NPC has actually spawned,
+     * retrying every 2 ticks for up to ~2 seconds. Stops early if the fight
+     * ends in the meantime (the NPC gets despawned by StrikePractice).
+     */
+    private void teleportBotWhenSpawned(Fight fight, NPC bot, Location dest, int attempt) {
+        if (handledEnds.contains(fight) || manager.getSession(fight) == null) {
+            return;
+        }
+        if (bot.isSpawned()) {
+            bot.teleport(dest, PlayerTeleportEvent.TeleportCause.PLUGIN);
+            plugin.getLogger().info("[Arena] Force teleported bot " + bot.getName() + " to " + dest.toVector()
+                    + (attempt > 0 ? " (after " + attempt + " retries)" : ""));
+            return;
+        }
+        if (attempt >= 50) {
+            plugin.getLogger().warning("[Arena] Bot " + bot.getName()
+                    + " never spawned — could not move it to the cloned arena.");
+            return;
+        }
+        Bukkit.getScheduler().runTaskLater(plugin,
+                () -> teleportBotWhenSpawned(fight, bot, dest, attempt + 1), 2L);
     }
 
     // ─── Dynamic Arena Management ────────────────────────────────────────
@@ -247,8 +301,13 @@ public class ArenaSelectionListener implements Listener {
             return;
         handledEnds.add(fight);
 
-        if (manager.getSession(fight) == null)
+        if (manager.getSession(fight) == null) {
+            // No cloned arena for this fight — nothing to clean up, but drop the
+            // dedup entries so the Fight objects don't accumulate forever
+            handledEnds.remove(fight);
+            handledStarts.remove(fight);
             return;
+        }
 
         Location spawn = StrikePractice.getAPI().getSpawnLocation();
 
@@ -288,6 +347,6 @@ public class ArenaSelectionListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onBotDuelEnd(BotDuelEndEvent event) {
-        handleFightEnd(event.getFight(), List.of(event.getPlayer()));
+        handleFightEnd(event.getFight(), singletonPlayerList(event.getPlayer()));
     }
 }

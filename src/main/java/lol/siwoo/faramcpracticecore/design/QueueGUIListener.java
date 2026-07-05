@@ -47,6 +47,12 @@ public class QueueGUIListener implements Listener {
 
         event.setCancelled(true);
 
+        // Only react to clicks in the GUI itself, not the player's own
+        // inventory (a renamed item in the hotbar could match a kit name, and
+        // bottom-slot indexes would corrupt GUI slots in afterActivities)
+        if (event.getClickedInventory() != event.getView().getTopInventory())
+            return;
+
         ItemStack clickedItem = event.getCurrentItem();
         if (clickedItem == null || !clickedItem.hasItemMeta())
             return;
@@ -218,7 +224,7 @@ public class QueueGUIListener implements Listener {
     public void newafterActivities(InventoryClickEvent e) {
         Player p = (Player) e.getWhoClicked();
         p.playSound(p.getLocation(), Sound.BLOCK_WOODEN_BUTTON_CLICK_ON, 1, 1);
-        p.openInventory(UnrankedGUI.createQueueGUI(p, 0, "n word"));
+        p.openInventory(UnrankedGUI.createQueueGUI(p, 0, "placeholder"));
     }
 
     @EventHandler
